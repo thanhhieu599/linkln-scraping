@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+# Session đăng nhập & dữ liệu cá nhân — KHÔNG commit
+auth/
+data/*
+!data/.gitkeep
+!data/profiles.example.txt
