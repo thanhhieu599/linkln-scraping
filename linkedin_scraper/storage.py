@@ -86,3 +86,72 @@ def _export_xlsx(profiles: list[Profile], out: Path) -> None:
             cell.font = Font(bold=True)
         sheet.freeze_panes = "A2"
     wb.save(out)
+
+
+# --------------------------------------------------------------------------- contacts
+def load_contacts(path: Path) -> list["Contact"]:
+    from .contacts import Contact, contact_key
+
+    if not path.exists():
+        return []
+    latest: dict[str, Contact] = {}
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                c = Contact.from_dict(json.loads(line))
+                latest[contact_key(c)] = c
+    return list(latest.values())
+
+
+def done_contact_urls(path: Path) -> set[str]:
+    return {c.linkedin_url for c in load_contacts(path) if not c.error and c.linkedin_url}
+
+
+def append_contact(path: Path, contact) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(contact.to_dict(), ensure_ascii=False) + "\n")
+
+
+def export_contacts(contacts: list, out: Path) -> Path:
+    from .contacts import CONTACT_FIELDS, format_phone_local
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    rows = [c.to_row() for c in contacts]
+    suffix = out.suffix.lower()
+    if suffix == ".json":
+        out.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    elif suffix == ".csv":
+        with out.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=CONTACT_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+    elif suffix == ".xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Contacts"
+        headers = CONTACT_FIELDS[:7] + ["phone_local"] + CONTACT_FIELDS[7:]
+        ws.append(headers)
+        for row in rows:
+            row = dict(row, phone_local=format_phone_local(row["phone"]) if row["phone"] else "")
+            # Lưu dạng text để Excel không làm mất dấu "+" / số 0 đầu
+            ws.append([str(row.get(h, "")) for h in headers])
+        highlight = PatternFill("solid", fgColor="E2EFDA")
+        for r in range(2, ws.max_row + 1):
+            if ws.cell(r, headers.index("email") + 1).value or ws.cell(r, headers.index("phone") + 1).value:
+                for col in (1, headers.index("email") + 1, headers.index("phone") + 1):
+                    ws.cell(r, col).fill = highlight
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "B2"
+        ws.auto_filter.ref = ws.dimensions
+        for col, width in zip("ABCDEFGH", (26, 12, 18, 32, 10, 34, 16, 16)):
+            ws.column_dimensions[col].width = width
+        wb.save(out)
+    else:
+        raise ValueError(f"Định dạng không hỗ trợ: {suffix} (dùng .csv, .xlsx hoặc .json)")
+    return out

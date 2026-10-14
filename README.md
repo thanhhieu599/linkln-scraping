@@ -6,6 +6,52 @@ Hệ thống thu thập thông tin **trang cá nhân LinkedIn** từ danh sách 
 
 ---
 
+## ⭐ Chế độ LẤY LIÊN HỆ: tên + email + SĐT (khuyên dùng cho sales)
+
+Chế độ này chỉ lấy những gì cần để liên hệ bán hàng: **họ tên, email, số điện thoại, chức danh, công ty, địa điểm, website, ngày kết nối**. Email doanh nghiệp được ưu tiên hơn gmail/yahoo. Số điện thoại được chuẩn hoá về dạng `+84...`, kèm cột `0912 345 678` để gọi.
+
+### 3 nguồn dữ liệu (dùng kết hợp)
+
+| Nguồn | Lệnh | Rủi ro khóa tài khoản | Ghi chú |
+|---|---|---|---|
+| **A. File xuất dữ liệu chính thức của LinkedIn** | `import-connections` | **Không có** | Nhanh và an toàn nhất. Có email của mọi kết nối cấp 1 cho phép tải email |
+| **B. Hộp "Contact info" trên hồ sơ** | `contacts` | Có, nên giữ dưới 80 hồ sơ/ngày | Lấy được email **và SĐT** mà người đó chia sẻ, thường chỉ với kết nối cấp 1 |
+| **C. Phần About / headline** | (tự động trong B) | — | Email/SĐT người đó tự công khai, kể cả kiểu viết né bot như `abc [at] xyz [dot] com` |
+
+> **Kỳ vọng thực tế:** LinkedIn **không** cho xem email/SĐT của người **chưa kết nối**. Với người lạ, hệ thống chỉ lấy được tên, chức danh và công ty, trừ khi họ tự ghi email/SĐT trong About. Với kết nối cấp 1, thường khoảng 30–60% có email, còn SĐT ít hơn nhiều.
+> → **Quy trình hiệu quả:** gửi lời mời kết nối tới Purchasing/EHS/Admin của các nhà máy mục tiêu, và khi họ chấp nhận thì chạy `contacts` hoặc `import-connections`.
+
+### A. Lấy từ file xuất dữ liệu của LinkedIn (khuyên làm đầu tiên)
+1. LinkedIn → **Settings & Privacy → Data privacy → Get a copy of your data** → chọn **Connections** → Request archive.
+2. Khoảng 10 phút sau LinkedIn gửi email kèm link tải file zip, trong đó có `Connections.csv`.
+3. Chạy:
+```bash
+python -m linkedin_scraper import-connections Connections.csv --merge -o data/contacts.xlsx
+```
+
+### B. Lấy từ hồ sơ (email + SĐT + thông tin trong hộp Contact info)
+```bash
+python -m linkedin_scraper login                        # 1 lần
+python -m linkedin_scraper contacts -i data/profiles.txt -o data/contacts.xlsx
+python -m linkedin_scraper contacts -u https://www.linkedin.com/in/xxx/ --headful   # chạy thử 1 hồ sơ
+```
+
+### Xuất danh bạ
+```bash
+python -m linkedin_scraper export-contacts -o data/contacts.xlsx --only-with-contact   # chỉ người có email/SĐT
+python -m linkedin_scraper export-contacts -o data/contacts.csv                        # import CRM / MISA / Sapo
+```
+
+**Cột trong file:** `full_name, first_name, last_name, email, email_type (business/personal), emails_all, phone_local, phone, phone_type, phones_all, title, company, headline, location, websites, twitter, address, connected_on, linkedin_url, source, scraped_at, error`
+
+Với tên Việt Nam, `first_name` là tên gọi: "Nguyễn Văn An" cho ra `first_name = An`, tiện cho mail merge kiểu "Chào anh An".
+
+### Cơ chế an toàn của chế độ liên hệ
+- Tự dừng ngay khi bị chuyển sang trang đăng nhập/checkpoint, khi gặp mã 429/999, hoặc sau **3 lỗi liên tiếp**.
+- Hồ sơ không tồn tại được ghi lại và bỏ qua. Hồ sơ lỗi sẽ được thử lại ở lần chạy sau. Hồ sơ đã lấy xong không bị lấy lại.
+
+---
+
 ## 1. Kiến trúc
 
 ```
@@ -15,6 +61,7 @@ linkedin_scraper/
 ├── scraper.py   # Điều phối: mở hồ sơ, cuộn trang, lấy trang /details/, rate limit, chạy tiếp từ chỗ dừng
 ├── parser.py    # HTML -> dữ liệu có cấu trúc (tách riêng nên test offline được)
 ├── models.py    # Profile / Experience / Education
+├── contacts.py  # Email/SĐT: trích xuất, chuẩn hoá (+84), hộp Contact info, đọc Connections.csv
 ├── storage.py   # Lưu JSONL (append, chống trùng) + xuất CSV / XLSX / JSON
 └── cli.py       # Lệnh: login | scrape | export | parse-html
 tests/           # Unit test parser + test end-to-end Playwright với LinkedIn giả lập
@@ -96,5 +143,6 @@ Test end-to-end chạy Playwright thật nhưng chặn mọi request tới linke
 
 - **Điều khoản LinkedIn** (User Agreement §8.2) cấm thu thập dữ liệu bằng công cụ tự động. Tài khoản dùng để scrape có thể bị hạn chế hoặc khóa vĩnh viễn. Bạn tự chịu trách nhiệm khi sử dụng.
 - **Nghị định 13/2023/NĐ-CP** về bảo vệ dữ liệu cá nhân (và Luật Bảo vệ dữ liệu cá nhân 2025): họ tên, nơi làm việc, quá trình công tác là *dữ liệu cá nhân*. Doanh nghiệp phải có mục đích xử lý rõ ràng, bảo mật dữ liệu, cho phép chủ thể yêu cầu xoá, và **không được mua bán dữ liệu**. Với dữ liệu cá nhân của công dân EU, GDPR cũng áp dụng.
-- Chỉ thu thập **thông tin công khai trên hồ sơ**. Hệ thống này không lấy email hay số điện thoại.
+- Hệ thống chỉ lấy email/SĐT mà **tài khoản của bạn được LinkedIn cho phép xem**: do người đó chia sẻ với kết nối, hoặc tự công khai. Nó không dò hay đoán email và không vượt qua giới hạn quyền xem.
+- Email/SĐT cá nhân là dữ liệu cá nhân theo NĐ 13/2023. Chỉ dùng để liên hệ công việc B2B, ghi rõ nguồn khi liên hệ lần đầu, và xoá ngay khi người đó yêu cầu. Không bán hay chia sẻ cho bên thứ ba.
 - Kênh hợp lệ thay thế hoặc bổ sung: **LinkedIn Sales Navigator** (lưu lead, InMail) và **Apollo.io / Lusha** (email doanh nghiệp đã xác minh, có API tích hợp CRM).

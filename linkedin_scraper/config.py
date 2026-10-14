@@ -32,6 +32,8 @@ class Settings:
     state_path: Path = ROOT / "auth" / "state.json"
     data_dir: Path = ROOT / "data"
     output_jsonl: Path = ROOT / "data" / "profiles.jsonl"
+    contacts_jsonl: Path = ROOT / "data" / "contacts.jsonl"
+    phone_region: str = os.getenv("PHONE_REGION", "VN")
     html_dir: Path = ROOT / "data" / "html"
     user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

@@ -16,6 +16,10 @@ from .parser import fill_current_position, normalize_profile_url, parse_details_
 
 log = logging.getLogger(__name__)
 
+LOGIN_FORM = "input[name=session_key], input#username, form.login__form, .authwall-join-form"
+# Dừng cả lượt khi lỗi liên tiếp — thường là dấu hiệu LinkedIn đang chặn
+MAX_CONSECUTIVE_ERRORS = 3
+
 # kind trên URL /details/<path>/  ->  thuộc tính của Profile
 DETAIL_PAGES = {
     "experience": "experiences",
@@ -50,12 +54,23 @@ class LinkedInScraper:
         high = self.settings.max_delay if high is None else high
         page.wait_for_timeout(random.uniform(low, high) * 1000)
 
-    def _goto(self, page: Page, url: str) -> None:
+    def _goto(self, page: Page, url: str) -> int:
+        """Mở trang, trả về HTTP status. Ném BlockedError nếu bị chặn / mất đăng nhập."""
         response = page.goto(url, wait_until="domcontentloaded")
-        if response is not None and response.status == 429:
-            raise BlockedError("LinkedIn trả về 429 (quá nhiều request)")
+        status = response.status if response is not None else 0
+        if status in (429, 999):  # 999 = mã LinkedIn dùng khi nghi ngờ bot
+            raise BlockedError(f"LinkedIn trả về {status} (quá nhiều request / nghi ngờ bot)")
         if is_blocked_url(page.url):
             raise BlockedError(f"Bị chuyển hướng tới {page.url} — session hết hạn hoặc bị xác minh")
+        # Một số trường hợp LinkedIn trả form đăng nhập mà không đổi URL
+        if page.locator(LOGIN_FORM).count() and not page.locator("main h1").count():
+            raise BlockedError("LinkedIn hiển thị form đăng nhập — session hết hạn")
+        return status
+
+    def _is_not_found(self, page: Page, status: int) -> bool:
+        return status == 404 or "/404" in page.url or page.locator(
+            "text=/This page doesn.t exist|Trang này không tồn tại/"
+        ).count() > 0
 
     def _scroll_to_bottom(self, page: Page, max_rounds: int = 12) -> None:
         """Cuộn từ từ như người dùng thật để LinkedIn lazy-load các section."""
@@ -90,13 +105,10 @@ class LinkedInScraper:
     # ------------------------------------------------------------------ scraping
     def scrape_profile(self, page: Page, url: str) -> Profile:
         url = normalize_profile_url(url)
-        self._goto(page, url)
-        try:
-            page.wait_for_selector("main h1", timeout=20_000)
-        except PlaywrightTimeout:
-            if "/404" in page.url or page.locator("text=This page doesn’t exist").count():
-                return Profile(url=url, error="Hồ sơ không tồn tại")
-            raise
+        status = self._goto(page, url)
+        if self._is_not_found(page, status):
+            return Profile(url=url, error="Hồ sơ không tồn tại")
+        page.wait_for_selector("main h1", timeout=20_000)
         self._scroll_to_bottom(page)
         html = page.content()
         profile = parse_profile_html(html, url)
@@ -146,6 +158,7 @@ class LinkedInScraper:
         results: list[Profile] = []
         with open_context(self.settings) as context:
             page = context.new_page()
+            errors_in_row = 0
             for i, url in enumerate(urls, 1):
                 log.info("[%d/%d] %s", i, len(urls), url)
                 try:
@@ -159,6 +172,14 @@ class LinkedInScraper:
 
                 storage.append_profile(out_path, profile)
                 results.append(profile)
+                if profile.error and profile.error != "Hồ sơ không tồn tại":
+                    errors_in_row += 1
+                else:
+                    errors_in_row = 0
+                if errors_in_row >= MAX_CONSECUTIVE_ERRORS:
+                    log.error("DỪNG: %d lỗi liên tiếp — có thể LinkedIn đang chặn. Kiểm tra lại "
+                              "bằng --headful trước khi chạy tiếp.", errors_in_row)
+                    break
                 if profile.error:
                     log.warning("  -> lỗi: %s", profile.error)
                 else:
@@ -169,4 +190,126 @@ class LinkedInScraper:
                     self._sleep(page)
             # Lưu lại cookie mới nhất để session sống lâu hơn
             context.storage_state(path=str(self.settings.state_path))
+        return results
+
+
+class ContactScraper(LinkedInScraper):
+    """Chỉ lấy tên + email + SĐT + vài thông tin quan trọng (chức danh, công ty, địa điểm).
+
+    Mỗi hồ sơ = 2 lượt tải trang: trang hồ sơ + hộp Contact info.
+    """
+
+    def __init__(self, settings: Settings, save_html: bool = False, region: str = "VN"):
+        super().__init__(settings, fetch_details=False, save_html=save_html)
+        self.region = region
+
+    def scrape_contact(self, page: Page, url: str) -> "Contact":
+        from .contacts import (Contact, clean_name, contact_from_text, merge_contact_info,
+                               parse_contact_info_html)
+
+        url = normalize_profile_url(url)
+        status = self._goto(page, url)
+        if self._is_not_found(page, status):
+            return Contact(linkedin_url=url, error="Hồ sơ không tồn tại")
+        page.wait_for_selector("main h1", timeout=20_000)
+        self._scroll_to_bottom(page, max_rounds=4)  # đủ để tải phần About + Experience
+        html = page.content()
+        profile = parse_profile_html(html, url)
+        self._dump_html(f"{profile.public_id}__profile", html)
+
+        contact = Contact(
+            linkedin_url=url,
+            full_name=clean_name(profile.full_name),
+            title=profile.current_title,
+            company=profile.current_company,
+            headline=profile.headline,
+            location=profile.location,
+        )
+        # Email/SĐT người dùng tự công khai ở headline / About
+        merge_contact_info(contact, contact_from_text(f"{profile.headline}\n{profile.about}",
+                                                      self.region), "about")
+
+        self._sleep(page, 2, 5)
+        overlay_html = self._open_contact_info(page, url)
+        if overlay_html:
+            self._dump_html(f"{profile.public_id}__contact", overlay_html)
+            merge_contact_info(contact, parse_contact_info_html(overlay_html, self.region),
+                               "contact_info")
+        return contact
+
+    def _open_contact_info(self, page: Page, url: str) -> str:
+        dialog = "div[role=dialog], .artdeco-modal, section.pv-contact-info"
+        self._goto(page, f"{url.rstrip('/')}/overlay/contact-info/")
+        try:
+            page.wait_for_selector(dialog, timeout=12_000)
+        except PlaywrightTimeout:
+            # Dự phòng: quay lại hồ sơ và bấm link "Contact info"
+            link = page.locator("a#top-card-text-details-contact-info, a[href*='overlay/contact-info']")
+            if link.count() == 0:
+                log.warning("  - không mở được hộp Contact info")
+                return ""
+            link.first.click()
+            try:
+                page.wait_for_selector(dialog, timeout=12_000)
+            except PlaywrightTimeout:
+                log.warning("  - không mở được hộp Contact info")
+                return ""
+        page.wait_for_timeout(1200)
+        return page.content()
+
+    def run_contacts(self, urls: list[str], limit: int | None = None, resume: bool = True) -> list:
+        from .contacts import Contact
+
+        out_path = self.settings.contacts_jsonl
+        if resume:
+            done = storage.done_contact_urls(out_path)
+            skipped = [u for u in urls if u in done]
+            urls = [u for u in urls if u not in done]
+            if skipped:
+                log.info("Bỏ qua %d hồ sơ đã lấy liên hệ trước đó", len(skipped))
+
+        cap = min(limit or self.settings.max_profiles_per_run, self.settings.max_profiles_per_run)
+        if len(urls) > cap:
+            log.warning("Giới hạn %d hồ sơ/lần chạy (còn %d để lần sau)", cap, len(urls) - cap)
+            urls = urls[:cap]
+        if not urls:
+            return []
+        if not self.settings.state_path.exists():
+            raise SystemExit("Chưa có session. Chạy trước: python -m linkedin_scraper login")
+
+        results: list[Contact] = []
+        with open_context(self.settings) as context:
+            page = context.new_page()
+            errors_in_row = 0
+            for i, url in enumerate(urls, 1):
+                log.info("[%d/%d] %s", i, len(urls), url)
+                try:
+                    contact = self.scrape_contact(page, url)
+                except BlockedError as exc:
+                    log.error("DỪNG: %s. Đăng nhập lại rồi chạy tiếp (đã lưu tiến độ).", exc)
+                    break
+                except Exception as exc:
+                    log.exception("Lỗi khi xử lý %s", url)
+                    contact = Contact(linkedin_url=url, error=f"{type(exc).__name__}: {exc}")
+
+                storage.append_contact(out_path, contact)
+                results.append(contact)
+                if contact.error and contact.error != "Hồ sơ không tồn tại":
+                    errors_in_row += 1
+                else:
+                    errors_in_row = 0
+                if errors_in_row >= MAX_CONSECUTIVE_ERRORS:
+                    log.error("DỪNG: %d lỗi liên tiếp — có thể LinkedIn đang chặn. Kiểm tra lại "
+                              "bằng --headful trước khi chạy tiếp.", errors_in_row)
+                    break
+                if contact.error:
+                    log.warning("  -> lỗi: %s", contact.error)
+                else:
+                    log.info("  -> %s | email: %s | SĐT: %s", contact.full_name,
+                             ", ".join(contact.emails) or "-", ", ".join(contact.phones) or "-")
+                if i < len(urls):
+                    self._sleep(page)
+            context.storage_state(path=str(self.settings.state_path))
+        found = sum(1 for c in results if c.has_contact)
+        log.info("Có email/SĐT: %d/%d hồ sơ", found, len(results))
         return results
