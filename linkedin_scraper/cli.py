@@ -156,6 +156,29 @@ def cmd_export_contacts(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_discover(args, settings: Settings) -> int:
+    from . import discovery as d
+    from .scraper import DiscoveryScraper
+
+    preset = d.PRESETS.get(args.preset)
+    if preset is None:
+        print(f"Không có preset '{args.preset}'. Có: {', '.join(d.PRESETS)}", file=sys.stderr)
+        return 2
+    people = args.keyword or preset["people"]
+    posts = [] if args.no_posts else (args.post_keyword or preset["posts"])
+    if args.headful:
+        settings.headless = False
+    store = DiscoveryScraper(settings, save_html=args.save_html).run_discover(
+        people, posts, pages=args.pages, max_new=args.max_new,
+        geo_urn="" if args.all_countries else None,
+    )
+    out = d.export_leads(store, Path(args.output))
+    profiles = settings.data_dir / "profiles.txt"
+    n = d.write_profiles_txt(profiles, store)
+    print(f"Tổng {len(store)} người -> {out}\nĐã ghi {n} link vào {profiles} (dùng cho lệnh contacts)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="linkedin_scraper", description="LinkedIn profile scraper")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -208,6 +231,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--only-with-contact", action="store_true", help="Chỉ xuất người có email/SĐT")
     s.add_argument("--include-errors", action="store_true")
     s.set_defaults(func=cmd_export_contacts)
+
+    s = sub.add_parser("discover", help="Tự tìm người dùng tại VN theo chủ đề (không cần danh sách)")
+    s.add_argument("--preset", default="ppe-vn", help="Bộ từ khoá có sẵn (mặc định ppe-vn)")
+    s.add_argument("-k", "--keyword", action="append",
+                   help="Từ khoá tìm người (dùng nhiều lần). Nếu có sẽ thay bộ từ khoá preset")
+    s.add_argument("--post-keyword", action="append", help="Từ khoá tìm bài viết (dùng nhiều lần)")
+    s.add_argument("--no-posts", action="store_true", help="Không tìm theo bài viết")
+    s.add_argument("--pages", type=int, default=5, help="Số trang kết quả mỗi từ khoá (10 người/trang)")
+    s.add_argument("--max-new", type=int, help="Dừng khi đã tìm được N người mới")
+    s.add_argument("--all-countries", action="store_true", help="Bỏ bộ lọc Việt Nam")
+    s.add_argument("--save-html", action="store_true", help="Lưu HTML trang kết quả để debug")
+    s.add_argument("--headful", action="store_true", help="Hiện cửa sổ trình duyệt")
+    s.add_argument("-o", "--output", default="data/leads.xlsx", help="File xuất (.xlsx/.csv)")
+    s.set_defaults(func=cmd_discover)
 
     s = sub.add_parser("parse-html", help="Phân tích file HTML đã lưu (offline)")
     s.add_argument("file")

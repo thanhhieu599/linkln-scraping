@@ -185,9 +185,12 @@ def test_export_contacts_xlsx_keeps_phone_as_text(tmp_path):
 
 
 def test_cli_import_connections_and_export(tmp_path, monkeypatch, capsys):
-    from linkedin_scraper import config
+    from linkedin_scraper import cli, config
 
-    monkeypatch.setattr(config.Settings, "contacts_jsonl", tmp_path / "contacts.jsonl")
+    s = config.Settings()
+    s.contacts_jsonl = tmp_path / "contacts.jsonl"
+    s.data_dir = tmp_path
+    monkeypatch.setattr(cli, "Settings", lambda: s)  # không ghi vào data/ thật
     out = tmp_path / "out.xlsx"
     assert main(["import-connections", str(FIXTURES / "Connections.csv"), "--merge",
                  "-o", str(out), "--only-with-contact"]) == 0

@@ -6,6 +6,34 @@ Hệ thống thu thập thông tin **trang cá nhân LinkedIn** từ danh sách 
 
 ---
 
+## 🔎 Tự tìm người dùng tại Việt Nam (không cần danh sách có sẵn)
+
+Lệnh `discover` tự tìm trên LinkedIn theo các từ khoá về bảo hộ lao động, lọc theo quốc gia **Việt Nam**, và **lấy tất cả kết quả** (không chấm điểm, không lọc). Có 2 nguồn:
+- **Tìm người:** "bảo hộ lao động", "an toàn lao động", EHS, HSE, Safety Officer/Manager, Purchasing Manager, Procurement, Buyer, GA/Admin Manager, Warehouse Manager, Plant Manager...
+- **Tìm bài viết:** tác giả các bài đăng về "bảo hộ lao động", "găng tay bảo hộ", "giày bảo hộ", EHS Vietnam...
+
+```bash
+python -m linkedin_scraper login                                   # 1 lần
+python -m linkedin_scraper discover                                # bộ từ khoá mặc định, 5 trang/từ khoá
+python -m linkedin_scraper discover --pages 10 --max-new 500       # nhiều hơn, dừng khi đủ 500 người mới
+python -m linkedin_scraper discover -k "EHS Manager" -k "an toàn lao động" --no-posts   # từ khoá riêng
+```
+
+**Kết quả:**
+- `data/leads.xlsx`: họ tên, headline (chức danh và công ty), địa điểm, cấp kết nối (1st/2nd/3rd+), link hồ sơ, từ khoá đã tìm ra người đó, trích đoạn bài viết.
+- `data/profiles.txt`: danh sách link, dùng tiếp cho lệnh `contacts` để lấy email/SĐT:
+  ```bash
+  python -m linkedin_scraper contacts -i data/profiles.txt -o data/contacts.xlsx
+  ```
+- Chạy nhiều lần sẽ **gộp dữ liệu, không trùng người**.
+
+**Giới hạn thực tế:**
+- Mỗi trang kết quả có 10 người, và LinkedIn cho xem tối đa 100 trang mỗi từ khoá.
+- Tài khoản miễn phí có **giới hạn lượt tìm người mỗi tháng** (commercial use limit). Khi hết lượt, tool tự dừng và giữ dữ liệu đã có. Muốn tìm nhiều hơn thì cần LinkedIn Premium hoặc Sales Navigator.
+- Email/SĐT chỉ lấy được với người **đã kết nối** với tài khoản của anh. Với người lạ, file chỉ có tên, chức danh, công ty và link hồ sơ.
+
+---
+
 ## ⭐ Chế độ LẤY LIÊN HỆ: tên + email + SĐT (khuyên dùng cho sales)
 
 Chế độ này chỉ lấy những gì cần để liên hệ bán hàng: **họ tên, email, số điện thoại, chức danh, công ty, địa điểm, website, ngày kết nối**. Email doanh nghiệp được ưu tiên hơn gmail/yahoo. Số điện thoại được chuẩn hoá về dạng `+84...`, kèm cột `0912 345 678` để gọi.
@@ -61,6 +89,7 @@ linkedin_scraper/
 ├── scraper.py   # Điều phối: mở hồ sơ, cuộn trang, lấy trang /details/, rate limit, chạy tiếp từ chỗ dừng
 ├── parser.py    # HTML -> dữ liệu có cấu trúc (tách riêng nên test offline được)
 ├── models.py    # Profile / Experience / Education
+├── discovery.py # Tự tìm người dùng VN qua tìm kiếm người + bài viết
 ├── contacts.py  # Email/SĐT: trích xuất, chuẩn hoá (+84), hộp Contact info, đọc Connections.csv
 ├── storage.py   # Lưu JSONL (append, chống trùng) + xuất CSV / XLSX / JSON
 └── cli.py       # Lệnh: login | scrape | export | parse-html

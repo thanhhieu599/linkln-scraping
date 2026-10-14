@@ -33,6 +33,7 @@ class Settings:
     data_dir: Path = ROOT / "data"
     output_jsonl: Path = ROOT / "data" / "profiles.jsonl"
     contacts_jsonl: Path = ROOT / "data" / "contacts.jsonl"
+    leads_jsonl: Path = ROOT / "data" / "leads.jsonl"
     phone_region: str = os.getenv("PHONE_REGION", "VN")
     html_dir: Path = ROOT / "data" / "html"
     user_agent: str = (

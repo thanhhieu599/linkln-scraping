@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import random
 from pathlib import Path
 
@@ -313,3 +314,69 @@ class ContactScraper(LinkedInScraper):
         found = sum(1 for c in results if c.has_contact)
         log.info("Có email/SĐT: %d/%d hồ sơ", found, len(results))
         return results
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"\W+", "_", text).strip("_")
+
+
+class DiscoveryScraper(LinkedInScraper):
+    """Tự tìm người dùng qua thanh tìm kiếm của LinkedIn (người + bài viết), lấy tất cả kết quả."""
+
+    def run_discover(self, people_keywords: list[str], post_keywords: list[str],
+                     pages: int = 5, geo_urn: str | None = None, max_new: int | None = None):
+        from . import discovery as d
+
+        geo = d.VIETNAM_GEO_URN if geo_urn is None else geo_urn
+        store = d.load_leads(self.settings.leads_jsonl)
+        start_count = len(store)
+        if not self.settings.state_path.exists():
+            raise SystemExit("Chưa có session. Chạy trước: python -m linkedin_scraper login")
+
+        def reached_cap() -> bool:
+            return max_new is not None and len(store) - start_count >= max_new
+
+        with open_context(self.settings) as context:
+            page = context.new_page()
+            try:
+                for kw in people_keywords:
+                    for p in range(1, pages + 1):
+                        if reached_cap():
+                            break
+                        url = d.people_search_url(kw, p, geo)
+                        log.info("[người] '%s' trang %d", kw, p)
+                        self._goto(page, url)
+                        page.wait_for_timeout(2500)
+                        self._scroll_to_bottom(page, max_rounds=4)
+                        html = page.content()
+                        self._dump_html(f"search_people_{_slug(kw)}_{p}", html)
+                        if d.detect_search_limit(html):
+                            raise BlockedError("Tài khoản đã hết lượt tìm người miễn phí trong tháng "
+                                               "(commercial use limit)")
+                        found = d.parse_people_search_html(html)
+                        new = sum(d.merge_lead(store, lead, f"people:{kw}") for lead in found)
+                        log.info("  -> %d kết quả, %d người mới (tổng %d)", len(found), new, len(store))
+                        d.save_leads(self.settings.leads_jsonl, store)
+                        if not found or d.has_no_results(html):
+                            break  # hết kết quả cho từ khoá này
+                        self._sleep(page)
+                for kw in post_keywords:
+                    if reached_cap():
+                        break
+                    log.info("[bài viết] '%s'", kw)
+                    self._goto(page, d.posts_search_url(kw))
+                    page.wait_for_timeout(2500)
+                    self._scroll_to_bottom(page, max_rounds=8 * pages)
+                    html = page.content()
+                    self._dump_html(f"search_posts_{_slug(kw)}", html)
+                    found = d.parse_posts_search_html(html)
+                    new = sum(d.merge_lead(store, lead, f"posts:{kw}") for lead in found)
+                    log.info("  -> %d tác giả, %d người mới (tổng %d)", len(found), new, len(store))
+                    d.save_leads(self.settings.leads_jsonl, store)
+                    self._sleep(page)
+            except BlockedError as exc:
+                log.error("DỪNG: %s. Dữ liệu đã tìm được vẫn được lưu.", exc)
+            context.storage_state(path=str(self.settings.state_path))
+        d.save_leads(self.settings.leads_jsonl, store)
+        log.info("Tìm được %d người mới, tổng cộng %d", len(store) - start_count, len(store))
+        return store
