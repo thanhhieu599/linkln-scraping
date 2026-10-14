@@ -201,3 +201,12 @@ def test_cli_import_connections_and_export(tmp_path, monkeypatch, capsys):
     out2 = tmp_path / "all.csv"
     assert main(["export-contacts", "-o", str(out2)]) == 0
     assert len(out2.read_text(encoding="utf-8-sig").strip().splitlines()) == 5
+
+
+def test_cli_missing_input_file_gives_friendly_message(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        main(["scrape", "-i", str(tmp_path / "khong-co.txt")])
+    assert "Không tìm thấy file danh sách" in str(exc.value)
+    with pytest.raises(SystemExit) as exc:
+        main(["contacts", "-i", str(tmp_path / "khong-co.txt")])
+    assert "profiles.example.txt" in str(exc.value)

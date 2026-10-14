@@ -31,6 +31,25 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+def _read_input(path_str: str) -> list[str]:
+    from .scraper import read_urls
+
+    path = Path(path_str)
+    if not path.exists():
+        example = Path("data") / "profiles.example.txt"
+        raise SystemExit(
+            f"Không tìm thấy file danh sách: {path.resolve()}\n"
+            f"-> Tạo file này, mỗi dòng 1 link hồ sơ LinkedIn, ví dụ:\n"
+            f"     https://www.linkedin.com/in/ten-nguoi-dung/\n"
+            f"   Có thể copy từ file mẫu: copy {example} {path}   (Windows)\n"
+            f"   Hoặc chạy thẳng 1 hồ sơ: -u https://www.linkedin.com/in/ten-nguoi-dung/"
+        )
+    urls = read_urls(path)
+    if not urls:
+        raise SystemExit(f"File {path} chưa có link hồ sơ nào (mỗi dòng 1 link /in/...)")
+    return urls
+
+
 def cmd_login(args, settings: Settings) -> int:
     from .browser import login
 
@@ -43,7 +62,7 @@ def cmd_scrape(args, settings: Settings) -> int:
 
     urls: list[str] = list(args.url or [])
     if args.input:
-        urls += read_urls(Path(args.input))
+        urls += _read_input(args.input)
     if not urls:
         print("Cần --input <file> hoặc --url <link hồ sơ>", file=sys.stderr)
         return 2
@@ -91,7 +110,7 @@ def cmd_contacts(args, settings: Settings) -> int:
 
     urls: list[str] = list(args.url or [])
     if args.input:
-        urls += read_urls(Path(args.input))
+        urls += _read_input(args.input)
     if not urls:
         print("Cần --input <file> hoặc --url <link hồ sơ>", file=sys.stderr)
         return 2
