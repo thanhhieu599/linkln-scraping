@@ -64,7 +64,7 @@ class LinkedInScraper:
         if is_blocked_url(page.url):
             raise BlockedError(f"Bị chuyển hướng tới {page.url} — session hết hạn hoặc bị xác minh")
         # Một số trường hợp LinkedIn trả form đăng nhập mà không đổi URL
-        if page.locator(LOGIN_FORM).count() and not page.locator("main h1").count():
+        if page.locator(LOGIN_FORM).count() and not page.locator("h1").count():
             raise BlockedError("LinkedIn hiển thị form đăng nhập — session hết hạn")
         return status
 
@@ -97,11 +97,32 @@ class LinkedInScraper:
             button.first.click()
             page.wait_for_timeout(random.randint(1200, 2200))
 
-    def _dump_html(self, name: str, html: str) -> None:
-        if not self.save_html:
+    def _dump_html(self, name: str, html: str, force: bool = False) -> None:
+        if not (self.save_html or force):
             return
         self.settings.html_dir.mkdir(parents=True, exist_ok=True)
         (self.settings.html_dir / f"{name}.html").write_text(html, encoding="utf-8")
+
+    def _wait_profile_loaded(self, page: Page, url: str) -> None:
+        """Chờ trang hồ sơ tải xong. Không phụ thuộc 1 thẻ cố định vì LinkedIn đổi giao diện
+        thường xuyên: ưu tiên thẻ tên (h1), không có thì chấp nhận khi khung trang (main) đã có."""
+        try:
+            page.wait_for_selector("h1", state="attached", timeout=15_000)
+            return
+        except PlaywrightTimeout:
+            pass
+        try:
+            page.wait_for_selector("main", state="attached", timeout=10_000)
+            page.wait_for_timeout(2_000)
+            log.info("  - không thấy thẻ tên h1, vẫn tiếp tục đọc trang")
+            return
+        except PlaywrightTimeout:
+            pid = normalize_profile_url(url).rstrip("/").rsplit("/", 1)[-1]
+            self._dump_html(f"_failed_{pid}", page.content(), force=True)
+            raise PlaywrightTimeout(
+                f"Trang hồ sơ không tải được sau 25 giây (url hiện tại: {page.url}). "
+                f"Đã lưu HTML vào {self.settings.html_dir / f'_failed_{pid}.html'} để kiểm tra."
+            ) from None
 
     # ------------------------------------------------------------------ scraping
     def scrape_profile(self, page: Page, url: str) -> Profile:
@@ -109,7 +130,7 @@ class LinkedInScraper:
         status = self._goto(page, url)
         if self._is_not_found(page, status):
             return Profile(url=url, error="Hồ sơ không tồn tại")
-        page.wait_for_selector("main h1", timeout=20_000)
+        self._wait_profile_loaded(page, url)
         self._scroll_to_bottom(page)
         html = page.content()
         profile = parse_profile_html(html, url)
@@ -212,11 +233,15 @@ class ContactScraper(LinkedInScraper):
         status = self._goto(page, url)
         if self._is_not_found(page, status):
             return Contact(linkedin_url=url, error="Hồ sơ không tồn tại")
-        page.wait_for_selector("main h1", timeout=20_000)
+        self._wait_profile_loaded(page, url)
         self._scroll_to_bottom(page, max_rounds=4)  # đủ để tải phần About + Experience
         html = page.content()
         profile = parse_profile_html(html, url)
-        self._dump_html(f"{profile.public_id}__profile", html)
+        # Không đọc được tên -> giao diện LinkedIn đã đổi: luôn lưu HTML để sửa parser
+        self._dump_html(f"{profile.public_id}__profile", html, force=not profile.full_name)
+        if not profile.full_name:
+            log.warning("  - không đọc được tên, đã lưu HTML: %s",
+                        self.settings.html_dir / f"{profile.public_id}__profile.html")
 
         contact = Contact(
             linkedin_url=url,

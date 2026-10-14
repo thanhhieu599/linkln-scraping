@@ -80,3 +80,10 @@ def test_details_page_skills():
 def test_empty_page_does_not_crash():
     p = parse_profile_html("<html><body></body></html>", URL)
     assert p.full_name == "" and p.experiences == [] and p.skills == []
+
+
+def test_name_from_tab_title_when_no_h1():
+    html = "<html><head><title>(12) Nguyễn Thị Lan | LinkedIn</title></head><body><main></main></body></html>"
+    assert parse_profile_html(html, URL).full_name == "Nguyễn Thị Lan"
+    html = "<html><head><title>LinkedIn</title></head><body></body></html>"
+    assert parse_profile_html(html, URL).full_name == ""

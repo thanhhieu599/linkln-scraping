@@ -224,7 +224,7 @@ def parse_simple_items(items: list[Tag], with_subtitle: bool = False) -> list[st
 # --------------------------------------------------------------------------- main page
 def parse_top_card(soup: BeautifulSoup, profile: Profile) -> None:
     main = soup.find("main") or soup
-    h1 = main.find("h1")
+    h1 = main.find("h1") or soup.find("h1")
     if h1:
         profile.full_name = _clean(h1.get_text(" "))
 
@@ -252,6 +252,12 @@ def parse_top_card(soup: BeautifulSoup, profile: Profile) -> None:
         og = soup.find("meta", attrs={"property": "og:title"})
         if og and og.get("content"):
             profile.full_name = _clean(og["content"].split(" - ")[0].split("|")[0])
+    # Fallback: tiêu đề tab "(3) Nguyễn Văn A | LinkedIn"
+    if not profile.full_name and soup.title:
+        title = re.sub(r"^\(\d+\+?\)\s*", "", _clean(soup.title.get_text(" ")))
+        name = _clean(title.split("|")[0])
+        if name and name.lower() not in ("linkedin", "feed", "log in", "sign up", "đăng nhập"):
+            profile.full_name = name
 
 
 def parse_about(soup: BeautifulSoup) -> str:

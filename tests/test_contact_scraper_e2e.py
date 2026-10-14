@@ -20,6 +20,10 @@ CONTACT_CLASSIC = (FIXTURES / "contact_info_classic.html").read_text(encoding="u
 CONTACT_EMPTY = (FIXTURES / "contact_info_empty.html").read_text(encoding="utf-8")
 NO_DIALOG = "<html><body><main><h1>X</h1><p>loading...</p></main></body></html>"
 NOT_FOUND = "<html><body><main><p>This page doesn’t exist</p></main></body></html>"
+# Giao diện hồ sơ kiểu mới: không có h1, tên chỉ nằm ở tiêu đề tab
+PROFILE_NO_H1 = ("<html><head><title>(3) Lê Văn Mới | LinkedIn</title></head><body><main>"
+                 "<section><h2>Lê Văn Mới</h2><p>EHS Manager at Intel</p></section></main></body></html>")
+BLANK = "<html><body><div>loading...</div></body></html>"
 AUTHWALL = ('<html><body><form class="login__form"><input name="session_key">'
             '<input name="session_password"></form></body></html>')
 
@@ -58,6 +62,10 @@ def _install(monkeypatch, routes: dict[str, str], calls: list[str]):
             return route.fulfill(status=404, content_type="text/html", body=NOT_FOUND)
         if "/overlay/contact-info/" in url:
             body = {"ok": CONTACT_CLASSIC, "empty": CONTACT_EMPTY}.get(mode, NO_DIALOG)
+        elif mode == "noh1":
+            body = PROFILE_NO_H1
+        elif mode == "blank":
+            body = BLANK
         else:
             body = PROFILE
         route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
@@ -221,3 +229,23 @@ def test_requires_login(tmp_path):
     settings.state_path.unlink()
     with pytest.raises(SystemExit):
         ContactScraper(settings).run_contacts(["https://www.linkedin.com/in/x/"])
+
+
+def test_profile_without_h1_still_works_and_saves_html(tmp_path, monkeypatch, chromium_ok):
+    """LinkedIn đổi giao diện (không còn h1): không được timeout, vẫn lấy tên + liên hệ."""
+    calls: list[str] = []
+    _install(monkeypatch, {"le-van-moi": "noh1"}, calls)
+    settings = _settings(tmp_path)
+    results = ContactScraper(settings).run_contacts(["https://www.linkedin.com/in/le-van-moi/"])
+    assert len(results) == 1 and results[0].error == ""
+    assert results[0].full_name == "Lê Văn Mới"
+    assert any("/overlay/contact-info/" in u for u in calls)
+
+
+def test_blank_profile_page_saves_debug_html(tmp_path, monkeypatch, chromium_ok):
+    calls: list[str] = []
+    _install(monkeypatch, {"trang-trang": "blank"}, calls)
+    settings = _settings(tmp_path)
+    results = ContactScraper(settings).run_contacts(["https://www.linkedin.com/in/trang-trang/"])
+    assert len(results) == 1 and "không tải được" in results[0].error
+    assert (settings.html_dir / "_failed_trang-trang.html").exists()
