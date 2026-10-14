@@ -10,7 +10,7 @@ from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from . import storage
-from .browser import BlockedError, is_blocked_url, open_context, safe_goto
+from .browser import BlockedError, has_session, is_blocked_url, open_context, safe_goto
 from .config import Settings
 from .models import Profile
 from .parser import fill_current_position, normalize_profile_url, parse_details_html, parse_profile_html
@@ -153,8 +153,8 @@ class LinkedInScraper:
             log.warning("Giới hạn %d hồ sơ/lần chạy (còn %d để lần sau)", cap, len(urls) - cap)
             urls = urls[:cap]
 
-        if not self.settings.state_path.exists():
-            raise SystemExit("Chưa có session. Chạy trước: python -m linkedin_scraper login")
+        if not has_session(self.settings):
+            raise SystemExit("Chưa đăng nhập. Chạy trước: python -m linkedin_scraper login")
 
         results: list[Profile] = []
         with open_context(self.settings) as context:
@@ -275,8 +275,8 @@ class ContactScraper(LinkedInScraper):
             urls = urls[:cap]
         if not urls:
             return []
-        if not self.settings.state_path.exists():
-            raise SystemExit("Chưa có session. Chạy trước: python -m linkedin_scraper login")
+        if not has_session(self.settings):
+            raise SystemExit("Chưa đăng nhập. Chạy trước: python -m linkedin_scraper login")
 
         results: list[Contact] = []
         with open_context(self.settings) as context:
@@ -330,8 +330,8 @@ class DiscoveryScraper(LinkedInScraper):
         geo = d.VIETNAM_GEO_URN if geo_urn is None else geo_urn
         store = d.load_leads(self.settings.leads_jsonl)
         start_count = len(store)
-        if not self.settings.state_path.exists():
-            raise SystemExit("Chưa có session. Chạy trước: python -m linkedin_scraper login")
+        if not has_session(self.settings):
+            raise SystemExit("Chưa đăng nhập. Chạy trước: python -m linkedin_scraper login")
 
         def reached_cap() -> bool:
             return max_new is not None and len(store) - start_count >= max_new
@@ -359,7 +359,9 @@ class DiscoveryScraper(LinkedInScraper):
                         d.save_leads(self.settings.leads_jsonl, store)
                         if not found or d.has_no_results(html):
                             break  # hết kết quả cho từ khoá này
-                        self._sleep(page)
+                        # Tìm kiếm bị LinkedIn theo dõi chặt hơn xem hồ sơ -> nghỉ lâu hơn
+                        self._sleep(page, max(self.settings.min_delay, 15),
+                                    max(self.settings.max_delay, 35))
                 for kw in post_keywords:
                     if reached_cap():
                         break

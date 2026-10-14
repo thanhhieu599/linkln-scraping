@@ -53,8 +53,8 @@ def _read_input(path_str: str) -> list[str]:
 def cmd_login(args, settings: Settings) -> int:
     from .browser import login
 
-    headless = False if args.headful else settings.headless
-    return 0 if login(settings, headless=headless) else 1
+    # Mặc định MỞ cửa sổ trình duyệt để người dùng tự đăng nhập (kể cả mã xác minh)
+    return 0 if login(settings, headless=args.headless) else 1
 
 
 def cmd_scrape(args, settings: Settings) -> int:
@@ -184,8 +184,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("login", help="Đăng nhập và lưu session")
-    s.add_argument("--headful", action="store_true", help="Mở trình duyệt để tự xử lý captcha/2FA")
+    s = sub.add_parser("login", help="Đăng nhập LinkedIn (mở cửa sổ trình duyệt) và lưu phiên")
+    s.add_argument("--headful", action="store_true", help="(mặc định) Mở cửa sổ trình duyệt")
+    s.add_argument("--headless", action="store_true",
+                   help="Không mở cửa sổ (chỉ dùng khi đã có email/mật khẩu hoặc li_at trong .env)")
     s.set_defaults(func=cmd_login)
 
     s = sub.add_parser("scrape", help="Thu thập hồ sơ")

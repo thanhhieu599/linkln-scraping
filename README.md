@@ -107,15 +107,16 @@ playwright install chromium
 cp .env.example .env
 ```
 
-## 3. Đăng nhập (chỉ cần làm 1 lần, session lưu ở `auth/state.json`)
+## 3. Đăng nhập (chỉ cần làm 1 lần)
 
-**Cách 1, khuyến nghị: dùng cookie `li_at`**
-1. Đăng nhập LinkedIn trên Chrome.
-2. Mở F12 → Application → Cookies → `https://www.linkedin.com` và copy giá trị `li_at`.
-3. Dán vào `.env`: `LINKEDIN_LI_AT=...`
-4. Chạy `python -m linkedin_scraper login`
+```bash
+python -m linkedin_scraper login
+```
+Một **cửa sổ Chrome riêng của tool** sẽ mở ra. Anh đăng nhập LinkedIn trong cửa sổ đó như bình thường, kể cả nhập mã xác minh nếu LinkedIn hỏi. Khi vào tới trang Feed, tool tự nhận, lưu phiên và đóng cửa sổ.
 
-**Cách 2: dùng email/mật khẩu** (điền vào `.env`) rồi chạy `python -m linkedin_scraper login --headful`. Nếu LinkedIn hỏi captcha/2FA, bạn tự xử lý trong cửa sổ trình duyệt (có 3 phút).
+- Phiên đăng nhập được lưu trong `auth/browser-profile`. Các lần chạy sau **không cần đăng nhập lại**.
+- **Không cần cookie `li_at` nữa.** Chép cookie từ Chrome của anh sang tool làm cùng một phiên chạy ở 2 trình duyệt khác nhau, và LinkedIn sẽ huỷ phiên đó (lỗi `ERR_TOO_MANY_REDIRECTS`). Nên để trống dòng `LINKEDIN_LI_AT` trong `.env`.
+- Gặp lỗi `ERR_TOO_MANY_REDIRECTS` hoặc thông báo "Phiên đăng nhập đã bị huỷ" thì chạy lại `login`, rồi nghỉ 15–30 phút trước khi chạy tiếp.
 
 > Nên dùng **tài khoản phụ**, không dùng tài khoản chính của công ty hay của CEO, vì tài khoản dùng để scrape có thể bị LinkedIn hạn chế.
 

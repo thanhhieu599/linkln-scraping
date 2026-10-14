@@ -1,19 +1,26 @@
+import os
 from pathlib import Path
 
-import pytest
+# Phải đặt TRƯỚC khi import linkedin_scraper: test mặc định không dùng hồ sơ trình duyệt thật
+os.environ["BROWSER_PROFILE_DIR"] = ""
 
-REAL_DATA = Path(__file__).resolve().parent.parent / "data"
+import pytest  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+PROTECTED = [ROOT / "data", ROOT / "auth"]
 
 
 def _snapshot() -> dict[str, float]:
-    if not REAL_DATA.exists():
-        return {}
-    return {str(p): p.stat().st_mtime for p in REAL_DATA.rglob("*") if p.is_file()}
+    snap: dict[str, float] = {}
+    for base in PROTECTED:
+        if base.exists():
+            snap.update({str(p): p.stat().st_mtime for p in base.rglob("*") if p.is_file()})
+    return snap
 
 
 @pytest.fixture(autouse=True)
-def _protect_real_data_dir():
-    """Không test nào được ghi vào thư mục data/ thật của người dùng."""
+def _protect_real_user_dirs():
+    """Không test nào được ghi vào data/ hay auth/ thật của người dùng."""
     before = _snapshot()
     yield
-    assert _snapshot() == before, "Test đã ghi vào thư mục data/ thật!"
+    assert _snapshot() == before, "Test đã ghi vào thư mục data/ hoặc auth/ thật!"

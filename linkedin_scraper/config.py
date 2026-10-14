@@ -34,6 +34,8 @@ class Settings:
     proxy_server: str = os.getenv("PROXY_SERVER", "")
     proxy_username: str = os.getenv("PROXY_USERNAME", "")
     proxy_password: str = os.getenv("PROXY_PASSWORD", "")
+    # Hồ sơ Chrome riêng của tool (đăng nhập tay 1 lần, dùng lại mãi). Để trống = tắt.
+    profile_dir: str = os.getenv("BROWSER_PROFILE_DIR", str(ROOT / "auth" / "browser-profile"))
     state_path: Path = ROOT / "auth" / "state.json"
     data_dir: Path = ROOT / "data"
     output_jsonl: Path = ROOT / "data" / "profiles.jsonl"
