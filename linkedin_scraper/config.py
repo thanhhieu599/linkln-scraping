@@ -29,6 +29,11 @@ class Settings:
     headless: bool = _bool(os.getenv("HEADLESS"), True)
     # Tuỳ chọn: đường dẫn Chrome/Chromium có sẵn trên máy (bỏ trống = dùng bản của Playwright)
     chromium_executable: str = os.getenv("CHROMIUM_EXECUTABLE", "")
+    # Dùng trình duyệt có sẵn trên máy: "chrome" hoặc "msedge" (khi Chromium bị mạng/antivirus chặn)
+    browser_channel: str = os.getenv("BROWSER_CHANNEL", "")
+    proxy_server: str = os.getenv("PROXY_SERVER", "")
+    proxy_username: str = os.getenv("PROXY_USERNAME", "")
+    proxy_password: str = os.getenv("PROXY_PASSWORD", "")
     state_path: Path = ROOT / "auth" / "state.json"
     data_dir: Path = ROOT / "data"
     output_jsonl: Path = ROOT / "data" / "profiles.jsonl"

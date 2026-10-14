@@ -152,6 +152,18 @@ python -m linkedin_scraper export -o data/profiles.xlsx    # hoặc .csv / .json
 - Tự **dừng ngay** khi gặp authwall, checkpoint hoặc lỗi 429. Tiến độ đã lưu, lần sau chạy tiếp từ chỗ dừng.
 - Lỗi ở một hồ sơ không làm dừng cả lượt chạy; hồ sơ lỗi được ghi lại kèm nguyên nhân và sẽ được thử lại ở lần sau.
 
+## 5b. Lỗi kết nối: `ERR_CONNECTION_RESET`, `ERR_TIMED_OUT`, `ERR_TUNNEL_CONNECTION_FAILED`
+
+Các lỗi này do **mạng hoặc phần mềm trên máy**, không phải do cookie. Tool tự thử lại 3 lần, sau đó in hướng dẫn. Kiểm tra lần lượt:
+1. Mở Chrome trên cùng máy, vào `https://www.linkedin.com/feed/`. Nếu **không vào được** thì đổi mạng (WiFi khác hoặc 4G phát từ điện thoại) và tắt VPN.
+2. Nếu Chrome vào được bình thường, cho tool dùng Chrome/Edge có sẵn trên máy bằng cách thêm vào `.env`:
+   ```
+   BROWSER_CHANNEL=chrome
+   ```
+   hoặc `BROWSER_CHANNEL=msedge`.
+3. **Antivirus** (Kaspersky, ESET, Avast, Bitdefender...) có thể chặn trình duyệt tự động: tạm tắt "quét HTTPS/Web Shield" hoặc thêm ngoại lệ cho `python.exe`.
+4. Mạng công ty dùng proxy: thêm `PROXY_SERVER=http://ip:port` vào `.env`. Nếu proxy có đăng nhập thì thêm cả `PROXY_USERNAME` và `PROXY_PASSWORD`.
+
 ## 6. Khi LinkedIn thay đổi giao diện
 
 1. Chạy lại với `--save-html` để lưu trang gốc.

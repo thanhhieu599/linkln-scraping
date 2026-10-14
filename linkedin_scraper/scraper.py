@@ -10,7 +10,7 @@ from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from . import storage
-from .browser import BlockedError, is_blocked_url, open_context
+from .browser import BlockedError, is_blocked_url, open_context, safe_goto
 from .config import Settings
 from .models import Profile
 from .parser import fill_current_position, normalize_profile_url, parse_details_html, parse_profile_html
@@ -57,7 +57,7 @@ class LinkedInScraper:
 
     def _goto(self, page: Page, url: str) -> int:
         """Mở trang, trả về HTTP status. Ném BlockedError nếu bị chặn / mất đăng nhập."""
-        response = page.goto(url, wait_until="domcontentloaded")
+        response = safe_goto(page, url)
         status = response.status if response is not None else 0
         if status in (429, 999):  # 999 = mã LinkedIn dùng khi nghi ngờ bot
             raise BlockedError(f"LinkedIn trả về {status} (quá nhiều request / nghi ngờ bot)")
@@ -165,7 +165,7 @@ class LinkedInScraper:
                 try:
                     profile = self.scrape_profile(page, url)
                 except BlockedError as exc:
-                    log.error("DỪNG: %s. Đăng nhập lại rồi chạy tiếp (đã lưu tiến độ).", exc)
+                    log.error("DỪNG: %s\n(Đã lưu tiến độ — xử lý xong thì chạy lại lệnh để tiếp tục.)", exc)
                     break
                 except Exception as exc:  # lỗi một hồ sơ không làm dừng cả lượt
                     log.exception("Lỗi khi xử lý %s", url)
@@ -287,7 +287,7 @@ class ContactScraper(LinkedInScraper):
                 try:
                     contact = self.scrape_contact(page, url)
                 except BlockedError as exc:
-                    log.error("DỪNG: %s. Đăng nhập lại rồi chạy tiếp (đã lưu tiến độ).", exc)
+                    log.error("DỪNG: %s\n(Đã lưu tiến độ — xử lý xong thì chạy lại lệnh để tiếp tục.)", exc)
                     break
                 except Exception as exc:
                     log.exception("Lỗi khi xử lý %s", url)

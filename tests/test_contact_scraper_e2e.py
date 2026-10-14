@@ -150,12 +150,60 @@ def test_stops_on_429(tmp_path, monkeypatch, chromium_ok):
 
 def test_stops_after_consecutive_errors(tmp_path, monkeypatch, chromium_ok):
     calls: list[str] = []
-    _install(monkeypatch, {f"e{i}": "boom" for i in range(5)}, calls)
+    _install(monkeypatch, {}, calls)
+    seen: list[str] = []
+
+    def broken(self, page, url):  # lỗi phân tích trang (không phải lỗi mạng)
+        seen.append(url)
+        raise ValueError("layout lạ")
+
+    monkeypatch.setattr(ContactScraper, "scrape_contact", broken)
     settings = _settings(tmp_path)
     urls = [f"https://www.linkedin.com/in/e{i}/" for i in range(5)]
     results = ContactScraper(settings).run_contacts(urls)
-    assert len(results) == 3 and all(r.error for r in results)
-    assert not any("/in/e3/" in u for u in calls)
+    assert len(results) == 3 and all("layout lạ" in r.error for r in results)
+    assert len(seen) == 3
+
+
+def test_network_error_retries_then_recovers(tmp_path, monkeypatch, chromium_ok):
+    """Mạng chập chờn: 2 lần đầu bị reset, lần 3 thành công -> vẫn lấy được dữ liệu."""
+    import linkedin_scraper.browser as browser_mod
+
+    monkeypatch.setattr(browser_mod.time, "sleep", lambda s: None)
+    calls: list[str] = []
+    _install(monkeypatch, {"flaky": "ok"}, calls)
+    fails = {"left": 2}
+    real_handler_install = scraper_mod.open_context
+
+    @contextmanager
+    def flaky_open(s, **kw):
+        with real_handler_install(s, **kw) as ctx:
+            def maybe_reset(route):
+                if fails["left"] > 0:
+                    fails["left"] -= 1
+                    return route.abort("connectionreset")
+                return route.fallback()
+            ctx.route("**/*", maybe_reset)
+            yield ctx
+
+    monkeypatch.setattr(scraper_mod, "open_context", flaky_open)
+    results = ContactScraper(_settings(tmp_path)).run_contacts(["https://www.linkedin.com/in/flaky/"])
+    assert len(results) == 1 and results[0].error == ""
+    assert results[0].full_name == "Nguyễn Văn A"
+
+
+def test_network_down_stops_run_without_marking_profiles(tmp_path, monkeypatch, chromium_ok):
+    import linkedin_scraper.browser as browser_mod
+
+    monkeypatch.setattr(browser_mod.time, "sleep", lambda s: None)
+    calls: list[str] = []
+    _install(monkeypatch, {f"n{i}": "boom" for i in range(3)}, calls)
+    settings = _settings(tmp_path)
+    urls = [f"https://www.linkedin.com/in/n{i}/" for i in range(3)]
+    assert ContactScraper(settings).run_contacts(urls) == []
+    assert not any("/in/n1/" in u for u in calls)  # dừng ngay, không thử hồ sơ tiếp theo
+    assert len([u for u in calls if "/in/n0/" in u]) >= 3  # đã thử lại 3 lần
+    assert not settings.contacts_jsonl.exists()  # không ghi hồ sơ lỗi -> lần sau chạy lại đủ
 
 
 def test_respects_limit_and_max_per_run(tmp_path, monkeypatch, chromium_ok):

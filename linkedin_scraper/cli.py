@@ -256,7 +256,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_logging(args.verbose)
-    return args.func(args, Settings())
+    from .browser import NetworkError
+
+    try:
+        return args.func(args, Settings())
+    except NetworkError as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":
